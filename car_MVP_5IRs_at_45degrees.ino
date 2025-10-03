@@ -15,10 +15,10 @@
 // ===== SECCIÓN 1: PARÁMETROS DE AJUSTE PARA DEPURACIÓN =====
 
 // --- Velocidades de Maniobra ---
-const int VELOCIDAD_BASE_DEBUG = 80;
-const int VELOCIDAD_GIRO_DEBUG = 84;
-const int VELOCIDAD_BUSQUEDA = 80;  // Velocidad mínima para buscar la línea
-const int VELOCIDAD_GIRO_90 = 80;
+const int VELOCIDAD_BASE_DEBUG = 90;
+const int VELOCIDAD_GIRO_DEBUG = 94;
+const int VELOCIDAD_BUSQUEDA = 90;  // Velocidad mínima para buscar la línea
+const int VELOCIDAD_GIRO_90 = 90;
 const int VELOCIDAD_GIRO_180 = 100;
 
 // --- Tiempos de Maniobra (en milisegundos) ---
@@ -35,6 +35,7 @@ const int TIEMPO_GIRO_180 = 530;
 #define IR_CENTRO A2
 #define IR_IZQUIERDO A3
 #define IR_EXTREMO_IZQUIERDO A4
+#define IR_ADELANTE A5
 #define MOTOR_IZQ_IN1 24
 #define MOTOR_IZQ_IN2 25
 #define MOTOR_IZQ_ENA 2
@@ -48,10 +49,10 @@ int lineaPerdidaContador = 0;  // Contador para intentos de búsqueda
 #define MAXlineaPerdidaContador 7
 
 int contadorDeadEnd = 0;
-#define DEAD_END_UMBRAL 7
+#define DEAD_END_UMBRAL 3
 
 int contadorFinal = 0;
-#define FINAL_UMBRAL 2
+#define FINAL_UMBRAL 1
 // ===== SECCIÓN 3: FUNCIONES DE ACCIÓN DISCRETA =====
 
 void accion_Detener() {
@@ -124,8 +125,9 @@ void accion_GiroFuerteIzquierda() {
   delay(TIEMPO_MANIOBRA);
 }
 
-bool deteccion_bifurcacion_Y(int s1, int s2, int s3, int s4, int s5) {
-  if ((s1 == 0 || s2 == 0) && s3 == 1 && (s4 == 0 || s5 == 0)) {
+bool deteccion_bifurcacion_Y(int s1, int s2, int s3, int s4, int s5, int s6) {
+  if ((s1 == 0 || s2 == 0) && (s4 == 0 || s5 == 0) && s6 == 1) {
+    Serial.println("-> Bifurcacion Y encontrada");
     return true;
   }
   return false;
@@ -135,6 +137,7 @@ bool deteccion_dead_end(int s1, int s2, int s3, int s4, int s5) {
   // Ningun sensor detecta la linea, chequear que no haya falso positivos
   if (s1 == 1 && s2 == 1 && s3 == 1 && s4 == 1 && s5 == 1) {
     contadorDeadEnd++;
+    // accion_BuscarAdelante();
   } else {
     contadorDeadEnd = 0;
   }
@@ -147,8 +150,9 @@ bool deteccion_dead_end(int s1, int s2, int s3, int s4, int s5) {
   return false;
 }
 
-bool deteccion_final(int s1, int s2, int s3, int s4, int s5) {
-  if (s1 == 0 && s2 == 0 && s3 == 0 && s4 == 0 && s5 == 0) {
+bool deteccion_final(int s1, int s2, int s3, int s4, int s5, int s6) {
+  if (s1 == 0 && s2 == 0 && s3 == 0 && s4 == 0 && s5 == 0 && s6 == 0) {
+    Serial.println("-> Final encontrado");
     contadorFinal++;
   } else {
     contadorFinal = 0;
@@ -178,7 +182,6 @@ void accion_GirarDerechaHastaLinea() {
     int s5 = digitalRead(IR_EXTREMO_IZQUIERDO);
 
     if (s1 == 1 && s2 == 1 && s3 == 0 && s4 == 1 && s5 == 1) {  // línea encontrada en el centro
-      // accion_Detener();
       Serial.println("-> Linea central detectada, giro DERECHA completado.");
       break;
     }
@@ -221,7 +224,7 @@ void u_turn() {
   digitalWrite(MOTOR_DER_IN3, LOW);
   digitalWrite(MOTOR_DER_IN4, HIGH);
 
-   // Misma velocidad en ambos para girar en el eje
+  // Misma velocidad en ambos para girar en el eje
   analogWrite(MOTOR_IZQ_ENA, VELOCIDAD_GIRO_180);
   analogWrite(MOTOR_DER_ENB, VELOCIDAD_GIRO_180);
 
@@ -236,6 +239,47 @@ void u_turn() {
   accion_BuscarAdelante();
 }
 
+void avanzar(int s1, int s2, int s3, int s4, int s5) {
+  if (s1 == 1 && s2 == 1 && s3 == 0 && s4 == 1 && s5 == 1) {
+    // Línea al centro
+    lineaPerdidaContador = 0;
+    accion_AvanzarRecto();
+  } else if ((s2 == 0 && s3 == 0) && s1 == 1 && s4 == 1 && s5 == 1) {
+    // Línea entre centro y derecha
+    lineaPerdidaContador = 0;
+    accion_GiroSuaveDerecha();
+  } else if ((s3 == 0 && s4 == 0) && s1 == 1 && s2 == 1 && s5 == 1) {
+    // Línea entre centro y izquierda
+    lineaPerdidaContador = 0;
+    accion_GiroSuaveIzquierda();
+  } else if (s1 == 1 && s2 == 0 && s3 == 1 && s4 == 1 && s5 == 1) {
+    // Línea solo en sensor derecho interno
+    lineaPerdidaContador = 0;
+    accion_GiroSuaveDerecha();
+  } else if (s1 == 1 && s2 == 1 && s3 == 1 && s4 == 0 && s5 == 1) {
+    // Línea solo en sensor izquierdo interno
+    lineaPerdidaContador = 0;
+    accion_GiroSuaveIzquierda();
+  } else if ((s1 == 0 && s2 == 0) && s3 == 1 && s4 == 1 && s5 == 1) {
+    // Línea fuerte a la derecha (dos sensores extremos derechos)
+    lineaPerdidaContador = 0;
+    accion_GiroFuerteDerecha();
+  } else if ((s4 == 0 && s5 == 0) && s1 == 1 && s2 == 1 && s3 == 1) {
+    // Línea fuerte a la izquierda (dos sensores extremos izquierdos)
+    lineaPerdidaContador = 0;
+    accion_GiroFuerteIzquierda();
+  } else if (s1 == 0 && s2 == 1 && s3 == 1 && s4 == 1 && s5 == 1) {
+    // Solo extremo derecho
+    lineaPerdidaContador = 0;
+    accion_GiroFuerteDerecha();
+  } else if (s1 == 1 && s2 == 1 && s3 == 1 && s4 == 1 && s5 == 0) {
+    // Solo extremo izquierdo
+    lineaPerdidaContador = 0;
+    accion_GiroFuerteIzquierda();
+  } else {
+    accion_BuscarAdelante();
+  }
+}
 
 // *** NUEVA FUNCIÓN ***
 // Maniobra: Avanzar muy lento y por poco tiempo para buscar la línea.
@@ -293,67 +337,26 @@ void setup() {
 }
 
 void loop() {
-  // Lectura de sensores (0 = línea negra, 1 = superficie blanca)
+  // Leer sensores
   int s1 = digitalRead(IR_EXTREMO_DERECHO);
   int s2 = digitalRead(IR_DERECHO);
   int s3 = digitalRead(IR_CENTRO);
   int s4 = digitalRead(IR_IZQUIERDO);
   int s5 = digitalRead(IR_EXTREMO_IZQUIERDO);
+  int s6 = !digitalRead(IR_ADELANTE);
 
-  Serial.print("Lectura [s5,s4,s3,s2,s1]: ");
-  Serial.print(s5);
-  Serial.print(s4);
-  Serial.print(s3);
-  Serial.print(s2);
-  Serial.println(s1);
-
-  // --- LÓGICA DE DECISIÓN CON REINICIO DE CONTADOR ---
-
-  // Si se detecta un estado válido, se reinicia el contador de línea perdida.
-
-  if (s1 == 1 && s2 == 1 && s3 == 0 && s4 == 1 && s5 == 1) {
-    lineaPerdidaContador = 0;  // Línea encontrada, resetea el contador
-    accion_AvanzarRecto();
-  } else if (s1 == 1 && s2 == 0 && s3 == 1 && s4 == 1 && s5 == 1) {
-    lineaPerdidaContador = 0;  // Línea encontrada, resetea el contador
-    accion_GiroSuaveDerecha();
-  } else if (s1 == 1 && s2 == 1 && s3 == 1 && s4 == 0 && s5 == 1) {
-    lineaPerdidaContador = 0;  // Línea encontrada, resetea el contador
-    accion_GiroSuaveIzquierda();
-  } else if (s1 == 0 && s2 == 1 && s3 == 1 && s4 == 1 && s5 == 1) {
-    lineaPerdidaContador = 0;  // Línea encontrada, resetea el contador
-    accion_GiroFuerteDerecha();
-  } else if (s1 == 1 && s2 == 1 && s3 == 1 && s4 == 1 && s5 == 0) {
-    lineaPerdidaContador = 0;  // Línea encontrada, resetea el contador
-    accion_GiroFuerteIzquierda();
-  } else if (deteccion_bifurcacion_Y(s1, s2, s3, s4, s5)) {
-    lineaPerdidaContador = 0;
-    accion_GirarDerechaHastaLinea();
-    // accion_Detener();
+  // Ejemplo de algoritmo "siempre derecha":
+  if (deteccion_final(s1, s2, s3, s4, s5, s6)) {
+    accion_Detener();
+    while (1);  // detener programa
   } else if (deteccion_dead_end(s1, s2, s3, s4, s5)) {
     u_turn();
-  } else if (deteccion_final(s1, s2, s3, s4, s5)){
-    accion_Detener();
-    while(1);
-  }
-  // --- *** NUEVA LÓGICA DE LÍNEA PERDIDA *** ---
-  else {
-    lineaPerdidaContador++;  // Incrementa el contador de intentos
-
-    if (lineaPerdidaContador >= MAXlineaPerdidaContador) {
-      // Demasiados intentos fallidos, parada total.
-      Serial.println("!!! PARADA DE EMERGENCIA: Linea no encontrada despues de XYXY intentos. !!!");
-      accion_Detener();
-      while (true) {
-        // Bucle infinito para detener el programa. Requiere reinicio manual.
-      }
-    } else {
-      // Intenta buscar la línea avanzando un poco.
-      accion_BuscarAdelante();
-    }
+  } else if (deteccion_bifurcacion_Y(s1, s2, s3, s4, s5, s6)) {
+    accion_GirarDerechaHastaLinea();
+  } else {
+    avanzar(s1, s2, s3, s4, s5);
   }
 
-  // Detenemos los motores y hacemos una pausa para observar
   accion_Detener();
   delay(PAUSA_ENTRE_ACCIONES);
 }
